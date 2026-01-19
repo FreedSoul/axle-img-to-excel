@@ -1,0 +1,4 @@
+pandas==2.1.4
+openpyxl==3.1.2
+boto3>=1.35.0
+Pillow

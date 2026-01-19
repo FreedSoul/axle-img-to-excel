@@ -1,0 +1,28 @@
+INFRASTRUCTURE: AWS NATIVE SERVERLESS STACK (PATH 1)
+
+The architecture is fully contained within AWS "Standard" services to ensure ease of deployment and security ("Native" integration).
+
+1.  **Amazon S3 (Simple Storage Service)**
+    - **Input Bucket**: Stores raw uploaded images. configured with event notifications.
+    - **Output Bucket**: Stores the processed Excel/CSV files.
+    - *Lifecycle Rules*: Recommended to set a 24-hour expiration rule to auto-delete files and save storage costs.
+
+2.  **AWS Lambda (Compute)**
+    - **Runtime**: Python 3.12
+    - **Memory**: ~512MB (Sufficient for image handling and pandas manipulation).
+    - **Timeout**: 30-60 seconds (Bedrock calls can take a few seconds).
+    - **Dependencies**: `boto3` (native), plus a layer for `pandas` and `openpyxl`.
+
+3.  **Amazon Bedrock (AI Platform)**
+    - **Model**: `meta.llama3-2-11b-inst-v1:0` (Llama 3.2 11B Vision Instruct).
+    - **Role**: Performs the Vision-to-Text extraction. No infrastructure management required by user.
+
+4.  **IAM (Identity and Access Management)**
+    - **Lambda Execution Role**:
+        - `s3:GetObject` (Input Bucket)
+        - `s3:PutObject` (Output Bucket)
+        - `bedrock:InvokeModel` (Access to Llama 3.2)
+        - `logs:CreateLogGroup` (CloudWatch logging)
+
+5.  **CloudWatch**
+    - Stores logs for debugging Lambda executions.

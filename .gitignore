@@ -1,0 +1,27 @@
+# --- AWS SAM ---
+.aws-sam/
+samconfig.toml
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+.env
+
+# --- OS / IDE ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Project Specific ---
+# Exclude processed output files
+*.xlsx
+*.csv
+# Exclude raw input samples if sensitive
+image-to-excel-service/samples/
+image-to-excel-service/docs/processed/

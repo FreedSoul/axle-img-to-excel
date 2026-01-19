@@ -1,0 +1,24 @@
+FUNCTIONALITY: WORKFLOW & USER EXPERIENCE
+
+The application operates as an event-driven, serverless pipeline.
+
+1.  **Upload (Input)**:
+    - The user uploads an image file (JPG, PNG) to a specific Amazon S3 bucket (Input Bucket).
+    - This can be done via a frontend interface (generating a presigned URL) or direct S3 upload for testing.
+
+2.  **Trigger (Event)**:
+    - The upload event automatically triggers an AWS Lambda function.
+    - No servers are running continuously; the compute resource spins up only when a file arrives.
+
+3.  **Processing (The "Brain")**:
+    - The Lambda function retrieves the image from S3.
+    - It sends the image to **AWS Bedrock**, invoking the **Llama 3.2 11B Vision** model.
+    - The model is prompted to extract the data and format it as a rigorous JSON structure, correcting spelling and interpreting layout context.
+
+4.  **Formatting (Conversion)**:
+    - The Lambda function receives the JSON response from Bedrock.
+    - Using the `pandas` and `openpyxl` libraries, it converts the JSON data into a structured `.xlsx` (Excel) or `.csv` file.
+
+5.  **Output (Delivery)**:
+    - The Lambda function saves the generated Excel/CSV file to a second Amazon S3 bucket (Output Bucket).
+    - The file is now ready for the user to download.

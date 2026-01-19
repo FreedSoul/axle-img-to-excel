@@ -1,0 +1,12 @@
+OBJECTIVE: IMAGE-TO-EXCEL AUTOMATION SERVICE
+
+The primary objective of this application is to automate the extraction of structured data from images (specifically invoices, construction orders, and material lists) into digital formats (Excel/CSV).
+
+Key Goals:
+1.  **Automation**: eliminate manual data entry by automatically processing uploaded images.
+2.  **Accuracy**: Leverage Vision Language Models (VLMs) to understand layout, handwriting, and context (e.g., distinguishing between quantity and price columns even if alignment is imperfect).
+3.  **Simplicity**: Provide a seamless "drop and wait" user experience where users upload a file and receive the processed spreadsheet.
+4.  **Cost-Effectiveness**: Utilize a serverless, pay-per-use architecture to minimize idle costs and maximize profit margins.
+
+Target Use Case:
+Processing construction related documents (invoices, material orders) which often contain mixed typed text, handwriting, and complex table layouts.

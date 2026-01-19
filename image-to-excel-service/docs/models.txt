@@ -1,0 +1,23 @@
+AI MODELS: SELECTION & RATIONALE
+
+## Primary Model (AWS Native Path)
+**Model**: Llama 3.2 11B Vision Instruct (`meta.llama3-2-11b-inst-v1:0`)
+**Platform**: Amazon Bedrock
+**Type**: Vision Language Model (VLM)
+
+**Rationale**:
+- **Integrated**: As an open-weights model hosted on Bedrock, it offers a perfect balance of "Smart" vs "Cheap". It is natively accessible via standard AWS SDKs (`boto3`), removing the need for external API keys or third-party accounts.
+- **Multimodal**: It processes images and text in a single pass, understanding layout and context better than traditional OCR (Textract).
+- **Cost**: Significantly cheaper than GPT-4o or Claude 3.5 Sonnet while capable enough for standard invoice extraction.
+
+---
+
+## Future/Alternative Model (Profit Path)
+**Model**: Google Gemini 2.0 Flash
+**Platform**: Google AI Studio (accessed via Lambda)
+**Type**: Multimodal Native VLM
+
+**Rationale for Future Use**:
+- **State-of-the-Art OCR**: Currently outperforms most models on handwriting and complex tables.
+- **Cost Leader**: Extremely competitive pricing (often free in preview or very low cost per image).
+- **Use Case**: Recommended if the service scales to high volume (10k+ users) or requires processing specifically difficult handwritten invoices where Llama 3.2 might struggle.

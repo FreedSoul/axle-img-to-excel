@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Image-to-Excel Service
+  
+  Serverless architecture using S3 and AWS Bedrock (Llama 3.2 11B Vision)
+  to extract data from images and convert them to Excel/CSV.
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 512
+    Runtime: python3.10
+
+Resources:
+  # 1. Input Bucket (Raw Images)
+  InputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "image-to-excel-input-${AWS::AccountId}"
+      LifecycleConfiguration:
+        Rules:
+          - Id: AutoDeleteOneDay
+            Status: Enabled
+            ExpirationInDays: 1
+
+  # 2. Output Bucket (Processed Excel Files)
+  OutputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "image-to-excel-output-${AWS::AccountId}"
+      LifecycleConfiguration:
+        Rules:
+          - Id: AutoDeleteSevenDays
+            Status: Enabled
+            ExpirationInDays: 7
+
+  # 3. The Brain (Lambda Function)
+  ImageProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: lambda_function.lambda_handler
+      Environment:
+        Variables:
+          OUTPUT_BUCKET: !Ref OutputBucket
+          BEDROCK_MODEL_ID: "us.meta.llama3-2-11b-instruct-v1:0"
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Sub "image-to-excel-input-${AWS::AccountId}"
+        - S3WritePolicy:
+            BucketName: !Sub "image-to-excel-output-${AWS::AccountId}"
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: "*" # Scoped to all models, or specify the specific ARN for Llama 3.2
+      Events:
+        FileUpload:
+          Type: S3
+          Properties:
+            Bucket: !Ref InputBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .jpg
+        FileUploadPng:
+          Type: S3
+          Properties:
+            Bucket: !Ref InputBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .png
+                  # Note: You can add more rules (like .png) in separate events or handle in code
+                  
+Outputs:
+  InputBucketName:
+    Description: "Upload images here"
+    Value: !Ref InputBucket
+  OutputBucketName:
+    Description: "Download processed Excel files here"
+    Value: !Ref OutputBucket
