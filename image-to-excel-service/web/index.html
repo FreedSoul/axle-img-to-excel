@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Axle Image-to-Excel Dash</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --text: #1e293b;
+            --border: #e2e8f0;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            width: 100%;
+            max-width: 600px;
+            padding: 2rem;
+        }
+        .card {
+            background: var(--card);
+            border-radius: 1rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            padding: 2rem;
+            border: 1px solid var(--border);
+        }
+        h1 { margin-top: 0; font-size: 1.5rem; text-align: center; color: var(--primary); }
+        .drop-zone {
+            border: 2px dashed var(--primary);
+            border-radius: 0.5rem;
+            padding: 3rem;
+            text-align: center;
+            transition: background 0.2s;
+            cursor: pointer;
+            margin-bottom: 1.5rem;
+        }
+        .drop-zone.drag-over { background: #eff6ff; }
+        .file-list { margin-top: 1rem; }
+        .file-item {
+            background: #f1f5f9;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            margin-bottom: 0.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            animation: fadeIn 0.3s ease;
+        }
+        .status { font-size: 0.875rem; font-weight: 600; }
+        .status-waiting { color: #64748b; }
+        .status-uploading { color: var(--primary); }
+        .status-success { color: #10b981; }
+        .status-error { color: #ef4444; }
+        button {
+            width: 100%;
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>📄 Image-to-Excel</h1>
+            <p style="text-align: center; color: #64748b;">Strategy A: Parallel Direct-to-S3 Upload</p>
+            
+            <div id="drop-zone" class="drop-zone">
+                Drag & Drop Images here or <strong>Click to Browse</strong>
+                <input type="file" id="file-input" multiple accept="image/*" style="display: none;">
+            </div>
+
+            <button id="upload-btn" disabled>Upload Files</button>
+
+            <div id="file-list" class="file-list"></div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
