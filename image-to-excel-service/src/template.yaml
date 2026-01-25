@@ -35,6 +35,12 @@ Resources:
             Status: Enabled
             ExpirationInDays: 7
 
+  # 4. Archive Bucket (Long-term Image Storage)
+  ArchiveBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "image-to-excel-archive-${AWS::AccountId}"
+
   # 3. The Brain (Lambda Function)
   ImageProcessorFunction:
     Type: AWS::Serverless::Function
@@ -44,12 +50,16 @@ Resources:
       Environment:
         Variables:
           OUTPUT_BUCKET: !Ref OutputBucket
+          ARCHIVE_BUCKET: !Ref ArchiveBucket
+          DATABASE_MOCK_BUCKET: !Ref ArchiveBucket # Using the same for now or could be separate
           BEDROCK_MODEL_ID: "us.meta.llama3-2-11b-instruct-v1:0"
       Policies:
         - S3ReadPolicy:
             BucketName: !Sub "image-to-excel-input-${AWS::AccountId}"
         - S3WritePolicy:
             BucketName: !Sub "image-to-excel-output-${AWS::AccountId}"
+        - S3WritePolicy:
+            BucketName: !Sub "image-to-excel-archive-${AWS::AccountId}"
         - Statement:
             - Effect: Allow
               Action:
@@ -66,6 +76,36 @@ Resources:
                 Rules:
                   - Name: suffix
                     Value: .jpg
+        FileUploadJpeg:
+          Type: S3
+          Properties:
+            Bucket: !Ref InputBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .jpeg
+        FileUploadCapsJpg:
+          Type: S3
+          Properties:
+            Bucket: !Ref InputBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .JPG
+        FileUploadCapsJpeg:
+          Type: S3
+          Properties:
+            Bucket: !Ref InputBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .JPEG
         FileUploadPng:
           Type: S3
           Properties:
@@ -76,6 +116,16 @@ Resources:
                 Rules:
                   - Name: suffix
                     Value: .png
+        FileUploadCapsPng:
+          Type: S3
+          Properties:
+            Bucket: !Ref InputBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .PNG
                   # Note: You can add more rules (like .png) in separate events or handle in code
                   
 Outputs:
