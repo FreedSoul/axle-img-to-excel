@@ -40,12 +40,24 @@ Resources:
           - Id: AutoDeleteSevenDays
             Status: Enabled
             ExpirationInDays: 7
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST, HEAD]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
 
   # 4. Archive Bucket (Long-term Image Storage)
   ArchiveBucket:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub "image-to-excel-archive-${AWS::AccountId}"
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST, HEAD]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
 
   # 5. Website Bucket (Static Web Hosting)
   WebsiteBucket:
@@ -92,7 +104,7 @@ Resources:
           OUTPUT_BUCKET: !Ref OutputBucket
           ARCHIVE_BUCKET: !Ref ArchiveBucket
           DATABASE_MOCK_BUCKET: !Ref ArchiveBucket # Using the same for now or could be separate
-          BEDROCK_MODEL_ID: "us.meta.llama3-2-11b-instruct-v1:0"
+          BEDROCK_MODEL_ID: "us.meta.llama4-maverick-17b-instruct-v1:0"
       Policies:
         - S3ReadPolicy:
             BucketName: !Sub "image-to-excel-input-${AWS::AccountId}"
@@ -176,15 +188,37 @@ Resources:
       Environment:
         Variables:
           INPUT_BUCKET: !Ref InputBucket
+          OUTPUT_BUCKET: !Ref OutputBucket
+          ARCHIVE_BUCKET: !Ref ArchiveBucket
       Policies:
         - S3WritePolicy:
             BucketName: !Sub "image-to-excel-input-${AWS::AccountId}"
+        - S3WritePolicy:
+            BucketName: !Sub "image-to-excel-output-${AWS::AccountId}"
+        - S3WritePolicy:
+            BucketName: !Sub "image-to-excel-archive-${AWS::AccountId}"
+        - S3ReadPolicy:
+            BucketName: !Sub "image-to-excel-output-${AWS::AccountId}"
+        - S3ReadPolicy:
+            BucketName: !Sub "image-to-excel-archive-${AWS::AccountId}"
       Events:
         GetUploadUrl:
           Type: HttpApi
           Properties:
             Path: /upload-url
             Method: GET
+            ApiId: !Ref MyApi
+        GetStatus:
+          Type: HttpApi
+          Properties:
+            Path: /status
+            Method: GET
+            ApiId: !Ref MyApi
+        SaveCorrection:
+          Type: HttpApi
+          Properties:
+            Path: /save
+            Method: POST
             ApiId: !Ref MyApi
                   
 Outputs:
