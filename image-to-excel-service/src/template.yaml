@@ -23,6 +23,12 @@ Resources:
           - Id: AutoDeleteOneDay
             Status: Enabled
             ExpirationInDays: 1
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST, HEAD]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
 
   # 2. Output Bucket (Processed Excel Files)
   OutputBucket:
@@ -34,12 +40,58 @@ Resources:
           - Id: AutoDeleteSevenDays
             Status: Enabled
             ExpirationInDays: 7
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST, HEAD]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
 
   # 4. Archive Bucket (Long-term Image Storage)
   ArchiveBucket:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub "image-to-excel-archive-${AWS::AccountId}"
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST, HEAD]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
+
+  # 5. Website Bucket (Static Web Hosting)
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "image-to-excel-web-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      WebsiteConfiguration:
+        IndexDocument: index.html
+
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action: s3:GetObject
+            Effect: Allow
+            Resource: !Sub 'arn:aws:s3:::${WebsiteBucket}/*'
+            Principal: '*'
+
+  # 6. API Gateway (Global HTTP API)
+  MyApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowMethods: ["GET", "POST", "OPTIONS"]
+        AllowHeaders: ["Content-Type", "Authorization"]
+        AllowOrigins: ["*"]
 
   # 3. The Brain (Lambda Function)
   ImageProcessorFunction:
@@ -52,7 +104,7 @@ Resources:
           OUTPUT_BUCKET: !Ref OutputBucket
           ARCHIVE_BUCKET: !Ref ArchiveBucket
           DATABASE_MOCK_BUCKET: !Ref ArchiveBucket # Using the same for now or could be separate
-          BEDROCK_MODEL_ID: "us.meta.llama3-2-11b-instruct-v1:0"
+          BEDROCK_MODEL_ID: "us.meta.llama4-maverick-17b-instruct-v1:0"
       Policies:
         - S3ReadPolicy:
             BucketName: !Sub "image-to-excel-input-${AWS::AccountId}"
@@ -64,7 +116,7 @@ Resources:
             - Effect: Allow
               Action:
                 - bedrock:InvokeModel
-              Resource: "*" # Scoped to all models, or specify the specific ARN for Llama 3.2
+              Resource: "*"
       Events:
         FileUpload:
           Type: S3
@@ -126,7 +178,48 @@ Resources:
                 Rules:
                   - Name: suffix
                     Value: .PNG
-                  # Note: You can add more rules (like .png) in separate events or handle in code
+
+  # 7. URL Signer (The Voucher Generator)
+  UrlSignerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: url_signer.lambda_handler
+      Environment:
+        Variables:
+          INPUT_BUCKET: !Ref InputBucket
+          OUTPUT_BUCKET: !Ref OutputBucket
+          ARCHIVE_BUCKET: !Ref ArchiveBucket
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Sub "image-to-excel-input-${AWS::AccountId}"
+        - S3WritePolicy:
+            BucketName: !Sub "image-to-excel-output-${AWS::AccountId}"
+        - S3WritePolicy:
+            BucketName: !Sub "image-to-excel-archive-${AWS::AccountId}"
+        - S3ReadPolicy:
+            BucketName: !Sub "image-to-excel-output-${AWS::AccountId}"
+        - S3ReadPolicy:
+            BucketName: !Sub "image-to-excel-archive-${AWS::AccountId}"
+      Events:
+        GetUploadUrl:
+          Type: HttpApi
+          Properties:
+            Path: /upload-url
+            Method: GET
+            ApiId: !Ref MyApi
+        GetStatus:
+          Type: HttpApi
+          Properties:
+            Path: /status
+            Method: GET
+            ApiId: !Ref MyApi
+        SaveCorrection:
+          Type: HttpApi
+          Properties:
+            Path: /save
+            Method: POST
+            ApiId: !Ref MyApi
                   
 Outputs:
   InputBucketName:
@@ -135,3 +228,9 @@ Outputs:
   OutputBucketName:
     Description: "Download processed Excel files here"
     Value: !Ref OutputBucket
+  ApiUrl:
+    Description: "Base URL for the API"
+    Value: !Sub "https://${MyApi}.execute-api.${AWS::Region}.amazonaws.com"
+  WebsiteUrl:
+    Description: "URL for the static website"
+    Value: !GetAtt WebsiteBucket.WebsiteURL
