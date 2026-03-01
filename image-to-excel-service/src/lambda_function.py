@@ -35,16 +35,16 @@ class S3MockDatabase(DatabaseRepository):
         data['processed_at'] = datetime.now().isoformat()
         
         # Determine path: weigh_tickets/YYYY/MM/filename.json
-        # Expecting scan_path: YYYY/MM/filename.jpg
-        path_parts = scan_path.split('/')
-        if len(path_parts) >= 3:
-            year, month = path_parts[0], path_parts[1]
-            filename = os.path.splitext(os.path.basename(scan_path))[0] + ".json"
-            key = f"weigh_tickets/{year}/{month}/{filename}"
+        # Determine path: weigh_tickets/YYYY/MM/filename.json
+        # The scan_path is now passed explicitly as the final archived image key (YYYY/MM/filename.jpg)
+        filename = os.path.splitext(os.path.basename(scan_path))[0] + ".json"
+        
+        # Keep the exact same prefix as the image
+        prefix = os.path.dirname(scan_path) 
+        if prefix:
+            key = f"weigh_tickets/{prefix}/{filename}"
         else:
-            # Fallback if path structure is different
-            filename = data.get('ticket_number', 'unknown')
-            key = f"weigh_tickets/unsorted/{filename}.json"
+            key = f"weigh_tickets/{filename}"
 
         s3_client.put_object(
             Bucket=self.bucket_name,
@@ -160,49 +160,111 @@ def lambda_handler(event, context):
         if bedrock_format == 'jpeg' or bedrock_format == 'jpg': bedrock_format = 'jpeg'
         elif bedrock_format not in ['png', 'gif', 'webp']: bedrock_format = 'jpeg'
 
-        # 3.5 Auto-Orientation Check via AI
-        try:
-            orientation_prompt = "Look at this receipt. Is it physically rotated? Reply ONLY with the number: 0 (upright), 90 (rotated clockwise), 180 (upside down), or 270 (rotated counter-clockwise). Do not write any other text."
-            orient_response = bedrock_client.converse(
-                modelId=model_id,
-                messages=[{"role": "user", "content": [{"text": orientation_prompt}, {"image": {"format": bedrock_format, "source": {"bytes": file_content}}}]}],
-                inferenceConfig={"maxTokens": 10, "temperature": 0.0}
-            )
-            angle_str = orient_response['output']['message']['content'][0]['text'].strip()
-            angle_match = re.search(r'(0|90|180|270)', angle_str)
-            if angle_match:
-                angle = int(angle_match.group(1))
-                if angle in [90, 180, 270]:
-                    print(f"Fixing AI detected rotation: {angle} degrees")
-                    # Image.rotate() moves counter-clockwise.
-                    # 90 clockwise -> rotate 90 counter-clockwise.
-                    image = image.rotate(angle, expand=True)
-                    # Resave
-                    img_byte_arr = io.BytesIO()
-                    if fmt == 'JPEG' and image.mode in ('RGBA', 'P'):
-                        image = image.convert('RGB')
-                    image.save(img_byte_arr, format=fmt)
-                    file_content = img_byte_arr.getvalue()
-        except Exception as e:
-            print(f"Orientation check skipped or failed: {e}")
+        # --- NEW TWO-STAGE AI PIPELINE ---
         
-        # 4. Prompt with Confidence Scores & Strict Formatting
-        prompt = """
+        SUPPORTED_VENDORS = ["CEMEX", "Titan America", "Vulcan Materials", "Florida Aggregate", "Blue Water Industries", "Martin Marietta", "Jahna Industries","Palm Beach Aggregates", "Conrad Yelvington Distributors", "Lehigh White Cement", "White Rock Quarries", "Garcia Mining"]  
+        
+        # 4A. Stage 1: The Router & Orienter Call
+        router_prompt = f"""
+        Analyze this weigh ticket image. You have two tasks:
+        1. Identify the vendor/company that issued this ticket. It MUST be from this list: {SUPPORTED_VENDORS}. If uncertain, use "UNKNOWN".
+        2. Is the image physically rotated? Reply with the number: 0 (upright), 90 (rotated clockwise), 180 (upside down), or 270 (rotated counter-clockwise).
+        
+        CRITICAL RULES FOR IDENTIFYING VENDOR:
+        - You MUST visually READ the text on the logo or letterhead exactly as it appears.
+        - You MUST NOT use outside knowledge to guess the company based on locations, cities, or addresses (e.g., do not guess 'Conrad Yelvington' just because you see 'Port Canaveral').
+        - Before identifying the vendor, transcribe the biggest text or logo text from the top of the image into 'raw_text_read'.
+        
+        You MUST reply with a valid JSON object containing exactly these properties:
+        {{
+            "raw_text_read": "The literal text you read from the logo/header",
+            "vendor": "VENDOR_NAME_HERE",
+            "rotation": 0
+        }}
+        Do not write any other conversational text.
+        
+        Vendor Hints:
+        - look at the top of the image analyze text next to logo
+        - if logo is not visible look for bigger text or bold text on the top
+        - Address 11000 NW 121st Way -> Titan America
+        """
+        
+        router_messages = [{"role": "user", "content": [{"text": router_prompt}, {"image": {"format": bedrock_format, "source": {"bytes": file_content}}}]}]
+        router_system = [{"text": "You must output ONLY valid JSON."}]
+        
+        print("Invoking Router & Orienter AI...")
+        router_model_id = os.environ.get('ROUTER_MODEL_ID', 'us.meta.llama3-2-11b-instruct-v1:0')
+        try:
+            router_response = bedrock_runtime.converse(
+                modelId=router_model_id,
+                messages=router_messages,
+                system=router_system,
+                inferenceConfig={"maxTokens": 100, "temperature": 0.0}
+            )
+            router_text = router_response['output']['message']['content'][0]['text'].strip()
+            
+            # Parse JSON
+            json_pattern = re.search(r'\{.*\}', router_text, re.DOTALL)
+            if json_pattern:
+                router_data = json.loads(json_pattern.group(0))
+            else:
+                router_data = {"vendor": "UNKNOWN", "rotation": 0}
+                
+            detected_vendor = str(router_data.get('vendor', 'UNKNOWN'))
+            rotation_angle = int(router_data.get('rotation', 0))
+            
+            # Apply rotation if needed
+            if rotation_angle in [90, 180, 270]:
+                print(f"Fixing AI detected rotation: {rotation_angle} degrees")
+                # Image.rotate() moves counter-clockwise
+                image = image.rotate(rotation_angle, expand=True)
+                img_byte_arr = io.BytesIO()
+                if fmt == 'JPEG' and image.mode in ('RGBA', 'P'):
+                    image = image.convert('RGB')
+                image.save(img_byte_arr, format=fmt)
+                file_content = img_byte_arr.getvalue() # Update file_content for Stage 2
+                
+        except Exception as e:
+            print(f"Router AI failed: {e}")
+            detected_vendor = "UNKNOWN"
+            
+        print(f"Router Detected Vendor: '{detected_vendor}'")
+        
+        # 4B. Python Failsafe & Switchboard
+        vendor_rules = {
+            "CEMEX": "- Job Location is usually 'Ship-to Address', Product is under 'Material'. If the year on the ticket date is cut off, partially printed, or reads like '202', you MUST assume the year is 2026 (e.g. 02/17/2026).",
+            "Titan America": "- The Product Name is explicitly labeled 'Product:' halfway down the ticket (e.g., '#89 STONE'). Do NOT grab the location name under the top logo. For the Truck ID, use the number strictly next to 'Vehicle:' regardless of its length. Do NOT use the long number next to 'Hauler:'.",
+            "Vulcan Materials": "- Net Weight is often at the bottom right labeled 'Net Lbs' (divide by 2000 to get Tons).",
+            "Florida Aggregate": "- Do NOT confuse 'Hours' for 'Tons'. If the line next to 'Tons:' is blank, return an empty string.",
+            "Blue Water Industries": "- They often don't print the year. Assume the year is 2026. The Ticket Number is literally labeled 'Ticket'."
+        }
+        
+        # Validate against strict list
+        matched_vendor = "GENERIC"
+        for v in SUPPORTED_VENDORS:
+            if v.lower() in detected_vendor.lower():
+                matched_vendor = v
+                break
+                
+        if matched_vendor == "GENERIC":
+            print("WARNING: Using GENERIC fallback rulebook.")
+            specific_hint = "- Do your best to extract the fields accurately based on common ticket layouts."
+        else:
+            specific_hint = vendor_rules.get(matched_vendor, "- Do your best to extract the fields accurately.")
+            
+        # 4C. Stage 2: The Extractor Call (Data Extraction)
+        extractor_prompt = f"""
         Analyze this weigh ticket image. You MUST return a JSON list containing ONE object.
         For EACH field, return an object with "value" (string) and "confidence" (0-100 integer).
         
-        VENDOR ALIGNMENT HINTS (Use these rules if the vendor matches):
-        - If "CEMEX": Job Location is usually "Ship-to Address", Product is under "Material". If the year on the ticket date is cut off, partially printed, or reads like '202', you MUST assume the year is 2026 (e.g. 02/17/2026).
-        - If "Vulcan Materials": Net Weight is often at the bottom right labeled "Net Lbs" (divide by 2000 to get Tons).
-        - If "Blue Water Industries": They often don't print the year. Assume the year is 2026. The Ticket Number is literally labeled "Ticket".
-        - If "Florida Aggregate": Do NOT confuse "Hours" for "Tons". If the line next to "Tons:" is blank, return an empty string.
-        - If "Titan America": The Product Name is explicitly labeled "Product:" halfway down the ticket (e.g., "#89 STONE"). Do NOT grab the location name under the top logo. For the Truck ID, use the number strictly next to "Vehicle:" regardless of its length. Do NOT use the long number next to "Hauler:".
+        TARGET VENDOR HINTS ({matched_vendor}):
+        {specific_hint}
 
         Fields to extract:
         - ticket_number: (Unique ID on the ticket)
         - transaction_date: (Date in YYYY-MM-DD format. If the year is cut off or missing (e.g., '02/17/202'), assume 2026 BUT YOU MUST SET CONFIDENCE TO 40 so the user checks it.)
         - transaction_time: (Time, e.g., 12:56 PM)
-        - vendor_name: (Source company name, e.g., CEMEX, Palm Beach Aggregates)
+        - vendor_name: (Source company name. Based on routing, likely: {matched_vendor})
         - customer_name: (Who the product is for)
         - job_location: (Where it's going)
         - truck_id: (Vehicle ID)
@@ -220,22 +282,21 @@ def lambda_handler(event, context):
         
         Example Format:
         [
-            {
-                "ticket_number": {"value": "12345", "confidence": 99},
-                "vendor_name": {"value": "CEMEX", "confidence": 85},
-                "net_weight_tons": {"value": "24.50", "confidence": 95}
-            }
+            {{
+                "ticket_number": {{"value": "12345", "confidence": 99}},
+                "vendor_name": {{"value": "{matched_vendor if matched_vendor != 'GENERIC' else 'Unknown Vendor'}", "confidence": 85}},
+                "net_weight_tons": {{"value": "24.50", "confidence": 95}}
+            }}
         ]
         """
         
-        messages = [{"role": "user", "content": [{"text": prompt}, {"image": {"format": bedrock_format, "source": {"bytes": file_content}}}]}]
-        
+        extractor_messages = [{"role": "user", "content": [{"text": extractor_prompt}, {"image": {"format": bedrock_format, "source": {"bytes": file_content}}}]}]
         system_prompt = [{"text": "You are an automated data extraction system. You must output ONLY valid JSON. Do not write any conversational text before or after the JSON list."}]
         
-        print("Invoking Bedrock...")
+        print("Invoking Extractor AI...")
         response = bedrock_runtime.converse(
             modelId=os.environ.get('BEDROCK_MODEL_ID', 'us.meta.llama4-maverick-17b-instruct-v1:0'),
-            messages=messages,
+            messages=extractor_messages,
             system=system_prompt,
             inferenceConfig={"maxTokens": 2000, "temperature": 0.1}
         )
@@ -256,6 +317,7 @@ def lambda_handler(event, context):
             data = data_list[0] if data_list else {}
 
         # 6. Archive Image and Save to Mock DB
+        # Archiver now dictates the EXACT final path used by the DB
         scan_path = archiver.archive_image(input_bucket, file_key, data, file_content)
         db_repo.save_ticket(data, scan_path)
         

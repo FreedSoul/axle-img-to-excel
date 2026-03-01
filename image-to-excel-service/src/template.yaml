@@ -105,6 +105,7 @@ Resources:
           ARCHIVE_BUCKET: !Ref ArchiveBucket
           DATABASE_MOCK_BUCKET: !Ref ArchiveBucket # Using the same for now or could be separate
           BEDROCK_MODEL_ID: "us.meta.llama4-maverick-17b-instruct-v1:0"
+          ROUTER_MODEL_ID: "us.meta.llama3-2-11b-instruct-v1:0"
       Policies:
         - S3ReadPolicy:
             BucketName: !Sub "image-to-excel-input-${AWS::AccountId}"
